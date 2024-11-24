@@ -1,7 +1,9 @@
 package com.example.pubsub;
 
+import com.google.pubsub.v1.ReceivedMessage;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
@@ -49,6 +51,21 @@ public class PubSubExample {
             // Cleanup
             publisher.shutdown();
             multiThreadSubscriber.stopSubscription();
+
+            // 示例2：使用拉取模式（同步批量处理）
+            System.out.println("\n=== Pull Mode Example ===");
+            PubSubSubscriber pullSubscriber = new PubSubSubscriber(projectId, subscriptionId, credentialsPath);
+            List<ReceivedMessage> messages = pullSubscriber.pullMessages(5); // 拉取最多5条消息
+            for (ReceivedMessage message : messages) {
+                String messageData = message.getMessage().getData().toStringUtf8();
+                Map<String, String> attributes = message.getMessage().getAttributesMap();
+                
+                System.out.println("Pull mode - Received message: " + messageData);
+                System.out.println("Attributes: " + attributes);
+            }
+
+            // 确认处理完成的消息
+            pullSubscriber.acknowledgeMessages(messages);
 
         } catch (IOException | InterruptedException | ExecutionException e) {
             e.printStackTrace();

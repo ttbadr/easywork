@@ -1,17 +1,21 @@
 package com.example.pubsub;
 
+import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.cloud.pubsub.v1.AckReplyConsumer;
 import com.google.cloud.pubsub.v1.MessageReceiver;
 import com.google.cloud.pubsub.v1.Subscriber;
-import com.google.pubsub.v1.ProjectSubscriptionName;
-import com.google.pubsub.v1.PubsubMessage;
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.SubscriptionAdminSettings;
+import com.google.pubsub.v1.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,96 +27,73 @@ import java.util.function.BiConsumer;
 public class PubSubSubscriber {
     private static final Logger logger = LoggerFactory.getLogger(PubSubSubscriber.class);
     private static final int DEFAULT_THREAD_POOL_SIZE = 1;
+    private static final int DEFAULT_MAX_MESSAGES = 100;
     
     private final ProjectSubscriptionName subscriptionName;
     private final GoogleCredentials credentials;
-    private final ExecutorService executorService;
+    private ExecutorService executorService;
     private Subscriber subscriber;
 
     /**
-     * Creates a custom thread factory that names threads as "PubSubSubscriber-N"
-     */
-    private static ThreadFactory createThreadFactory() {
-        return new ThreadFactory() {
-            private final AtomicInteger threadNumber = new AtomicInteger(1);
-            
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread thread = new Thread(r);
-                thread.setName("PubSubSubscriber-" + threadNumber.getAndIncrement());
-                return thread;
-            }
-        };
-    }
-
-    /**
-     * Creates a subscriber using default credentials with default single thread pool
+     * Creates a subscriber with default credentials
+     *
+     * @param projectId Project ID
+     * @param subscriptionId Subscription ID
+     * @throws IOException if credentials cannot be loaded
      */
     public PubSubSubscriber(String projectId, String subscriptionId) throws IOException {
-        this(projectId, subscriptionId, GoogleCredentials.getApplicationDefault(), DEFAULT_THREAD_POOL_SIZE);
+        this.subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);
+        this.credentials = GoogleCredentials.getApplicationDefault();
     }
 
     /**
-     * Creates a subscriber using default credentials with specified thread pool size
-     *
-     * @param projectId Project ID
-     * @param subscriptionId Subscription ID
-     * @param threadPoolSize Number of threads in the executor service
-     */
-    public PubSubSubscriber(String projectId, String subscriptionId, int threadPoolSize) throws IOException {
-        this(projectId, subscriptionId, GoogleCredentials.getApplicationDefault(), threadPoolSize);
-    }
-
-    /**
-     * Creates a subscriber using service account key file with default single thread pool
+     * Creates a subscriber with service account credentials
      *
      * @param projectId Project ID
      * @param subscriptionId Subscription ID
      * @param credentialsPath Path to service account key file
-     * @throws IOException if unable to read credentials file
+     * @throws IOException if credentials cannot be loaded
      */
     public PubSubSubscriber(String projectId, String subscriptionId, String credentialsPath) throws IOException {
-        this(projectId, subscriptionId, credentialsPath, DEFAULT_THREAD_POOL_SIZE);
+        this.subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);
+        this.credentials = ServiceAccountCredentials.fromStream(new FileInputStream(credentialsPath));
     }
 
     /**
-     * Creates a subscriber using service account key file with specified thread pool size
+     * Creates a subscriber with custom thread pool size
+     *
+     * @param projectId Project ID
+     * @param subscriptionId Subscription ID
+     * @param threadPoolSize Thread pool size for message processing
+     * @throws IOException if credentials cannot be loaded
+     */
+    public PubSubSubscriber(String projectId, String subscriptionId, int threadPoolSize) throws IOException {
+        this(projectId, subscriptionId);
+        initializeThreadPool(threadPoolSize);
+    }
+
+    /**
+     * Creates a subscriber with service account credentials and custom thread pool size
      *
      * @param projectId Project ID
      * @param subscriptionId Subscription ID
      * @param credentialsPath Path to service account key file
-     * @param threadPoolSize Number of threads in the executor service
-     * @throws IOException if unable to read credentials file
+     * @param threadPoolSize Thread pool size for message processing
+     * @throws IOException if credentials cannot be loaded
      */
     public PubSubSubscriber(String projectId, String subscriptionId, String credentialsPath, int threadPoolSize) throws IOException {
-        try (FileInputStream credentialsStream = new FileInputStream(credentialsPath)) {
-            this.credentials = ServiceAccountCredentials.fromStream(credentialsStream);
-            this.subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);
-            this.executorService = Executors.newFixedThreadPool(threadPoolSize, createThreadFactory());
-            logger.info("Created subscriber with credentials from file: {} and thread pool size: {}", 
-                credentialsPath, threadPoolSize);
-        }
+        this(projectId, subscriptionId, credentialsPath);
+        initializeThreadPool(threadPoolSize);
     }
 
-    /**
-     * Creates a subscriber using specified credentials with default single thread pool
-     */
-    public PubSubSubscriber(String projectId, String subscriptionId, GoogleCredentials credentials) {
-        this(projectId, subscriptionId, credentials, DEFAULT_THREAD_POOL_SIZE);
-    }
-
-    /**
-     * Creates a subscriber using specified credentials with specified thread pool size
-     *
-     * @param projectId Project ID
-     * @param subscriptionId Subscription ID
-     * @param credentials Google credentials
-     * @param threadPoolSize Number of threads in the executor service
-     */
-    public PubSubSubscriber(String projectId, String subscriptionId, GoogleCredentials credentials, int threadPoolSize) {
-        this.subscriptionName = ProjectSubscriptionName.of(projectId, subscriptionId);
-        this.credentials = credentials;
-        this.executorService = Executors.newFixedThreadPool(threadPoolSize, createThreadFactory());
+    private void initializeThreadPool(int threadPoolSize) {
+        final AtomicInteger threadNumber = new AtomicInteger(1);
+        ThreadFactory threadFactory = r -> {
+            Thread thread = new Thread(r);
+            thread.setName("PubSubSubscriber-" + threadNumber.getAndIncrement());
+            return thread;
+        };
+        this.executorService = Executors.newFixedThreadPool(threadPoolSize, threadFactory);
         logger.info("Created subscriber with thread pool size: {}", threadPoolSize);
     }
 
@@ -122,6 +103,10 @@ public class PubSubSubscriber {
      * @param messageHandler Callback function to handle received messages
      */
     public void startSubscription(BiConsumer<String, Map<String, String>> messageHandler) {
+        if (executorService == null) {
+            initializeThreadPool(DEFAULT_THREAD_POOL_SIZE);
+        }
+
         MessageReceiver receiver = (PubsubMessage message, AckReplyConsumer consumer) -> {
             try {
                 String messageData = message.getData().toStringUtf8();
@@ -155,23 +140,96 @@ public class PubSubSubscriber {
      */
     public void stopSubscription() {
         if (subscriber != null) {
-            try {
-                subscriber.stopAsync().awaitTerminated(30, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                logger.error("Error stopping subscriber", e);
-            }
+            subscriber.stopAsync().awaitTerminated();
+            logger.info("Subscription stopped for: {}", subscriptionName);
         }
         
         if (executorService != null) {
-            executorService.shutdown();
             try {
-                if (!executorService.awaitTermination(30, TimeUnit.SECONDS)) {
+                executorService.shutdown();
+                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
                     executorService.shutdownNow();
+                    if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                        logger.error("Thread pool did not terminate");
+                    }
                 }
             } catch (InterruptedException e) {
                 executorService.shutdownNow();
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    /**
+     * Pulls messages from subscription in a blocking manner
+     *
+     * @param maxMessages Maximum number of messages to pull
+     * @return List of received messages
+     * @throws IOException if there's an error communicating with the service
+     */
+    public List<ReceivedMessage> pullMessages(int maxMessages) throws IOException {
+        try (SubscriptionAdminClient subscriptionAdminClient = createSubscriptionAdminClient()) {
+            PullRequest pullRequest = PullRequest.newBuilder()
+                    .setMaxMessages(maxMessages)
+                    .setSubscription(subscriptionName.toString())
+                    .build();
+
+            PullResponse pullResponse = subscriptionAdminClient.pull(pullRequest);
+            List<ReceivedMessage> receivedMessages = new ArrayList<>();
+            
+            for (ReceivedMessage message : pullResponse.getReceivedMessagesList()) {
+                receivedMessages.add(message);
+            }
+            
+            logger.info("Pulled {} messages from subscription {}", 
+                receivedMessages.size(), subscriptionName);
+            
+            return receivedMessages;
+        }
+    }
+
+    /**
+     * Pulls messages using default maximum message count (100)
+     *
+     * @return List of received messages
+     * @throws IOException if there's an error communicating with the service
+     */
+    public List<ReceivedMessage> pullMessages() throws IOException {
+        return pullMessages(DEFAULT_MAX_MESSAGES);
+    }
+
+    /**
+     * Acknowledges a list of received messages
+     *
+     * @param messages List of messages to acknowledge
+     * @throws IOException if there's an error communicating with the service
+     */
+    public void acknowledgeMessages(List<ReceivedMessage> messages) throws IOException {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        try (SubscriptionAdminClient subscriptionAdminClient = createSubscriptionAdminClient()) {
+            List<String> ackIds = new ArrayList<>();
+            for (ReceivedMessage message : messages) {
+                ackIds.add(message.getAckId());
+            }
+
+            AcknowledgeRequest acknowledgeRequest = AcknowledgeRequest.newBuilder()
+                    .setSubscription(subscriptionName.toString())
+                    .addAllAckIds(ackIds)
+                    .build();
+
+            subscriptionAdminClient.acknowledge(acknowledgeRequest);
+            logger.info("Acknowledged {} messages from subscription {}", 
+                ackIds.size(), subscriptionName);
+        }
+    }
+
+    private SubscriptionAdminClient createSubscriptionAdminClient() throws IOException {
+        SubscriptionAdminSettings settings = SubscriptionAdminSettings.newBuilder()
+                .setCredentialsProvider(FixedCredentialsProvider.create(credentials))
+                .build();
+        return SubscriptionAdminClient.create(settings);
     }
 }
