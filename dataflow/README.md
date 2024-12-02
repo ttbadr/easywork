@@ -18,9 +18,17 @@
    - 启用 Pub/Sub API
    - 配置好 AlloyDB 实例
    - 设置好服务账号和权限：
-     - `roles/dataflow.worker`：运行 Dataflow jobs
+     - `roles/dataflow.developer`：创建和管理 Dataflow jobs
+     - `roles/dataflow.worker`：运行 Dataflow worker
      - `roles/pubsub.subscriber`：读取 Pub/Sub 消息
      - `roles/alloydb.client`：连接 AlloyDB
+     - `roles/storage.objectUser`：读写 GCS 中的文件（用于 jar、配置和临时文件）
+
+   注意：也可以创建自定义角色，仅包含以下必要权限：
+   - Dataflow: `dataflow.jobs.*`, `dataflow.worker.*`
+   - Pub/Sub: `pubsub.subscriptions.consume`, `pubsub.subscriptions.get`
+   - AlloyDB: `alloydb.clusters.connect`, `alloydb.instances.connect`
+   - Storage: `storage.objects.create`, `storage.objects.get`, `storage.objects.list`
 
 ## 认证配置
 
