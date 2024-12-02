@@ -21,7 +21,7 @@
      - `roles/dataflow.developer`：创建和管理 Dataflow jobs
      - `roles/dataflow.worker`：运行 Dataflow worker
      - `roles/pubsub.subscriber`：读取 Pub/Sub 消息
-     - `roles/alloydb.client`：连接 AlloyDB
+     - `roles/alloydb.client`：连接 AlloyDB 实例
      - `roles/storage.objectUser`：读写 GCS 中的文件（用于 jar、配置和临时文件）
 
    注意：也可以创建自定义角色，仅包含以下必要权限：
@@ -29,6 +29,36 @@
    - Pub/Sub: `pubsub.subscriptions.consume`, `pubsub.subscriptions.get`
    - AlloyDB: `alloydb.clusters.connect`, `alloydb.instances.connect`
    - Storage: `storage.objects.create`, `storage.objects.get`, `storage.objects.list`
+
+### 数据库权限配置
+
+除了 Google Cloud IAM 权限外，还需要配置 AlloyDB 数据库权限：
+
+1. 创建数据库用户：
+```sql
+CREATE USER dataflow_user WITH PASSWORD 'your-password';
+```
+
+2. 授予数据库权限：
+```sql
+-- 连接权限
+GRANT CONNECT ON DATABASE your_database TO dataflow_user;
+
+-- Schema 权限
+GRANT USAGE ON SCHEMA public TO dataflow_user;
+
+-- 表权限（对所有目标表）
+GRANT INSERT ON user_events TO dataflow_user;
+GRANT INSERT ON orders TO dataflow_user;
+-- 如果需要，添加其他表的权限
+```
+
+在运行 Pipeline 时，需要在 JDBC URL 中使用这个用户的凭证：
+```
+jdbc:postgresql://your-alloydb-instance/your-database?user=dataflow_user&password=your-password&...
+```
+
+建议使用 Google Cloud Secret Manager 存储数据库凭证。
 
 ## 认证配置
 
