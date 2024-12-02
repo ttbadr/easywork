@@ -3,6 +3,7 @@ package com.example.dataflow;
 import com.example.dataflow.config.TableMapping;
 import com.example.dataflow.db.AlloyDBWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.options.Default;
@@ -33,7 +34,7 @@ public class PubSubToAlloyDB {
         void setJdbcUrl(String value);
 
         @Description("Path to the table mapping configuration file")
-        @Required
+        @Default.String("")
         String getTableMappingConfig();
         void setTableMappingConfig(String value);
 
@@ -49,9 +50,21 @@ public class PubSubToAlloyDB {
                 .as(Options.class);
 
         // Load table mappings from configuration file
-        ObjectMapper mapper = new ObjectMapper();
-        List<TableMapping> tableMappings = Arrays.asList(
-                mapper.readValue(new File(options.getTableMappingConfig()), TableMapping[].class));
+        ObjectMapper mapper = new YAMLMapper();
+        List<TableMapping> tableMappings;
+        
+        String configPath = options.getTableMappingConfig();
+        if (configPath != null && !configPath.isEmpty()) {
+            // Load from specified file
+            tableMappings = Arrays.asList(
+                mapper.readValue(new File(configPath), TableMapping[].class));
+        } else {
+            // Load from default configuration in resources
+            tableMappings = Arrays.asList(
+                mapper.readValue(
+                    PubSubToAlloyDB.class.getResourceAsStream("/table-mapping.yaml"),
+                    TableMapping[].class));
+        }
 
         Pipeline pipeline = Pipeline.create(options);
 

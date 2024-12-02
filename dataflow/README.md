@@ -17,33 +17,54 @@
    - 启用 Dataflow API
    - 启用 Pub/Sub API
    - 配置好 AlloyDB 实例
-   - 设置好服务账号和权限
+   - 设置好服务账号和权限：
+     - `roles/dataflow.worker`：运行 Dataflow jobs
+     - `roles/pubsub.subscriber`：读取 Pub/Sub 消息
+     - `roles/alloydb.client`：连接 AlloyDB
+
+## 认证配置
+
+### 本地运行（使用 java 命令）
+如果在本地环境运行，需要：
+1. 下载服务账号密钥文件（JSON 格式）
+2. 设置环境变量：
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
+```
+
+### Google Cloud 环境运行
+如果在 Google Cloud 环境（如 Compute Engine、Cloud Run）中运行：
+1. 确保运行环境的默认服务账号或指定的服务账号有足够权限
+2. 无需额外的认证配置，会自动使用实例的默认凭证
+
+### 使用 gcloud 命令运行
+如果使用 `gcloud` 命令运行：
+1. 确保已登录：
+```bash
+gcloud auth login
+gcloud config set project your-project-id
+```
+2. 无需额外的认证配置
 
 ## 配置说明
 
 ### 表映射配置
 
-在 `src/main/resources/table-mapping.json` 中配置消息类型到数据库表的映射：
+在 `src/main/resources/table-mapping.yaml` 中配置消息类型到数据库表的映射：
 
-```json
-[
-  {
-    "messageType": "user_event",
-    "tableName": "user_events",
-    "columns": [
-      {
-        "jsonPath": "/user_id",
-        "columnName": "user_id",
-        "columnType": "STRING"
-      },
-      {
-        "jsonPath": "/event_type",
-        "columnName": "event_type",
-        "columnType": "STRING"
-      }
-    ]
-  }
-]
+```yaml
+- messageType: user_event
+  tableName: user_events
+  columns:
+    - jsonPath: /user_id
+      columnName: user_id
+      columnType: STRING
+    - jsonPath: /event_type
+      columnName: event_type
+      columnType: STRING
+    - jsonPath: /timestamp
+      columnName: event_timestamp
+      columnType: BIGINT
 ```
 
 配置说明：
@@ -83,14 +104,41 @@ mvn clean package
 
 ### 运行 Dataflow Pipeline
 
+#### 方式一：使用 java 命令（适合本地开发和测试）
+
+1. 确保已配置认证（参考上面的认证配置章节）
+2. 运行命令：
 ```bash
 java -jar target/dataflow-1.0-SNAPSHOT.jar \
   --project=your-project-id \
   --subscriptions=projects/your-project/subscriptions/subscription1,projects/your-project/subscriptions/subscription2 \
   --jdbcUrl=jdbc:alloydb:your-alloydb-connection-string \
-  --tableMappingConfig=src/main/resources/table-mapping.json \
+  --tableMappingConfig=src/main/resources/table-mapping.yaml \
   --runner=DataflowRunner \
   --region=your-region
+```
+
+#### 方式二：使用 gcloud 命令（推荐用于生产环境）
+
+1. 确保已登录 gcloud（参考上面的认证配置章节）
+2. 将 jar 包和配置文件上传到 Google Cloud Storage：
+```bash
+gsutil cp target/dataflow-1.0-SNAPSHOT.jar gs://your-bucket/jars/
+gsutil cp src/main/resources/table-mapping.yaml gs://your-bucket/config/
+```
+
+3. 运行命令：
+```bash
+gcloud dataflow jobs run job-name \
+  --gcs-location=gs://your-bucket/jars/dataflow-1.0-SNAPSHOT.jar \
+  --project=your-project-id \
+  --region=your-region \
+  --parameters \
+  subscriptions=projects/your-project/subscriptions/subscription1,projects/your-project/subscriptions/subscription2 \
+  --parameters \
+  jdbcUrl=jdbc:alloydb:your-alloydb-connection-string \
+  --parameters \
+  tableMappingConfig=gs://your-bucket/config/table-mapping.yaml
 ```
 
 参数说明：

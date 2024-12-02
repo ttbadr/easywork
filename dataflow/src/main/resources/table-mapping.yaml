@@ -1,0 +1,28 @@
+- messageType: user_event
+  tableName: user_events
+  columns:
+    - jsonPath: /user_id
+      columnName: user_id
+      columnType: STRING
+    - jsonPath: /event_type
+      columnName: event_type
+      columnType: STRING
+    - jsonPath: /timestamp
+      columnName: event_timestamp
+      columnType: BIGINT
+
+- messageType: order
+  tableName: orders
+  columns:
+    - jsonPath: /order_id
+      columnName: order_id
+      columnType: STRING
+    - jsonPath: /customer_id
+      columnName: customer_id
+      columnType: STRING
+    - jsonPath: /total_amount
+      columnName: total_amount
+      columnType: DOUBLE
+    - jsonPath: /created_at
+      columnName: created_at
+      columnType: BIGINT
