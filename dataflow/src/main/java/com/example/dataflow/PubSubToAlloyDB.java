@@ -8,7 +8,7 @@ import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
-import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation.Required;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -22,7 +22,7 @@ public class PubSubToAlloyDB {
     /**
      * Options interface for the pipeline.
      */
-    public interface Options extends PipelineOptions {
+    public interface Options extends DataflowPipelineOptions {
         @Description("List of Pub/Sub subscription names to read from, comma-separated")
         @Required
         String getSubscriptions();
@@ -37,11 +37,6 @@ public class PubSubToAlloyDB {
         @Default.String("")
         String getTableMappingConfig();
         void setTableMappingConfig(String value);
-
-        @Description("Project ID")
-        @Required
-        String getProject();
-        void setProject(String value);
     }
 
     public static void main(String[] args) throws Exception {
