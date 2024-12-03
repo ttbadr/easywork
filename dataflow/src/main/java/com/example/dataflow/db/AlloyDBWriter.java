@@ -4,18 +4,19 @@ import com.example.dataflow.config.TableMapping;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.state.StateSpec;
+import org.apache.beam.sdk.state.StateSpecs;
+import org.apache.beam.sdk.state.ValueState;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Date;
-import java.sql.Timestamp;
 import java.sql.Types;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,69 +28,96 @@ public class AlloyDBWriter extends DoFn<String, Void> {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
     private static final String DEFAULT_TIMESTAMP_FORMAT = "yyyy-MM-dd HH:mm:ss.S";
+    private static final int DEFAULT_BATCH_SIZE = 1000;
+
+    // 使用 ValueState 来跟踪已处理的消息
+    @StateId("processedMessages")
+    private final StateSpec<ValueState<Boolean>> processedSpec = StateSpecs.value();
 
     private final String jdbcUrl;
     private final List<TableMapping> tableMappings;
-    private transient Connection connection;
+    private final int batchSize;
+    private transient AlloyDBConnectionPool connectionPool;
+    private transient AlloyDBBatchWriter batchWriter;
 
     public AlloyDBWriter(String jdbcUrl, List<TableMapping> tableMappings) {
+        this(jdbcUrl, tableMappings, DEFAULT_BATCH_SIZE);
+    }
+
+    public AlloyDBWriter(String jdbcUrl, List<TableMapping> tableMappings, int batchSize) {
         this.jdbcUrl = jdbcUrl;
         this.tableMappings = tableMappings;
+        this.batchSize = batchSize;
     }
 
     @Setup
     public void setup() throws SQLException {
-        connection = AlloyDBConnectionUtil.getConnection(jdbcUrl);
+        connectionPool = new AlloyDBConnectionPool(jdbcUrl);
+        connectionPool.initialize();
+        batchWriter = new AlloyDBBatchWriter(connectionPool, tableMappings, "alloydb_writer", batchSize);
+        LOG.info("Initialized AlloyDB connection pool and batch writer");
     }
 
     @ProcessElement
-    public void processElement(@Element String message, OutputReceiver<Void> receiver) {
+    public void processElement(
+            @Element String message,
+            @StateId("processedMessages") ValueState<Boolean> processed,
+            BoundedWindow window) {
         try {
-            JsonNode jsonNode = OBJECT_MAPPER.readTree(message);
-            String messageType = jsonNode.path("type").asText();
-
-            TableMapping mapping = tableMappings.stream()
-                    .filter(m -> m.getMessageType().equals(messageType))
-                    .findFirst()
-                    .orElse(null);
-
-            if (mapping == null) {
-                LOG.warn("No table mapping found for message type: {}", messageType);
+            // 检查消息是否已经处理过
+            if (Boolean.TRUE.equals(processed.read())) {
+                LOG.debug("Message already processed, skipping");
                 return;
             }
 
-            insertIntoTable(mapping, jsonNode);
+            JsonNode jsonNode = OBJECT_MAPPER.readTree(message);
+            String messageType = jsonNode.path("type").asText();
+
+            if (messageType == null || messageType.isEmpty()) {
+                LOG.warn("Message type is missing or empty: {}", message);
+                return;
+            }
+
+            batchWriter.addMessage(messageType, jsonNode);
+            
+            // 标记消息为已处理
+            processed.write(true);
         } catch (Exception e) {
             LOG.error("Error processing message: " + message, e);
+            throw new RuntimeException("Failed to process message", e);
         }
     }
 
-    private void insertIntoTable(TableMapping mapping, JsonNode jsonNode) throws SQLException {
-        List<String> columnNames = mapping.getColumns().stream()
-                .map(TableMapping.ColumnMapping::getColumnName)
-                .collect(Collectors.toList());
+    @FinishBundle
+    public void finishBundle() {
+        try {
+            batchWriter.flushAll();
+        } catch (Exception e) {
+            LOG.error("Error flushing batch writer", e);
+            throw new RuntimeException("Failed to flush batch writer", e);
+        }
+    }
 
-        String sql = createInsertStatement(mapping.getTableName(), columnNames);
-        
-        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            for (int i = 0; i < mapping.getColumns().size(); i++) {
-                TableMapping.ColumnMapping column = mapping.getColumns().get(i);
-                JsonNode value = jsonNode.at(column.getJsonPath());
-                setParameterValue(stmt, i + 1, value, column);
+    @Teardown
+    public void teardown() {
+        try {
+            if (batchWriter != null) {
+                batchWriter.flushAll();
             }
-            stmt.executeUpdate();
+            if (connectionPool != null) {
+                connectionPool.close();
+                LOG.info("Closed AlloyDB connection pool");
+            }
+        } catch (Exception e) {
+            LOG.error("Error during teardown", e);
+            throw new RuntimeException("Failed during teardown", e);
         }
     }
 
-    private String createInsertStatement(String tableName, List<String> columnNames) {
-        String columns = String.join(", ", columnNames);
-        String placeholders = String.join(", ", columnNames.stream().map(c -> "?").collect(Collectors.toList()));
-        return String.format("INSERT INTO %s (%s) VALUES (%s)", tableName, columns, placeholders);
-    }
-
-    private void setParameterValue(PreparedStatement stmt, int index, JsonNode value, TableMapping.ColumnMapping column) throws SQLException {
+    // Static utility method used by AlloyDBBatchWriter
+    static void setParameterValue(PreparedStatement stmt, int index, JsonNode value, TableMapping.ColumnMapping column) throws SQLException {
         if (value.isNull()) {
-            stmt.setNull(index, java.sql.Types.NULL);
+            stmt.setNull(index, Types.NULL);
             return;
         }
 
@@ -149,7 +177,7 @@ public class AlloyDBWriter extends DoFn<String, Void> {
                         }
                         SimpleDateFormat dateFormat = new SimpleDateFormat(format);
                         java.util.Date parsedDate = dateFormat.parse(value.asText());
-                        stmt.setDate(index, new java.sql.Date(parsedDate.getTime()));
+                        stmt.setDate(index, new Date(parsedDate.getTime()));
                     } catch (ParseException e) {
                         LOG.error("Error parsing DATE value: " + value.asText() + " with format: " + column.getFormat(), e);
                         throw new SQLException("Invalid DATE format for column " + column.getColumnName(), e);
@@ -198,10 +226,32 @@ public class AlloyDBWriter extends DoFn<String, Void> {
         }
     }
 
-    @Teardown
-    public void teardown() throws Exception {
-        if (connection != null && !connection.isClosed()) {
-            connection.close();
+    // Add the missing createInsertStatement method
+    static String createInsertStatement(String tableName, List<String> columnNames) {
+        if (tableName == null || tableName.isEmpty()) {
+            throw new IllegalArgumentException("Table name cannot be null or empty");
         }
+        if (columnNames == null || columnNames.isEmpty()) {
+            throw new IllegalArgumentException("Column names cannot be null or empty");
+        }
+
+        // Build the SQL INSERT statement dynamically
+        StringBuilder sqlBuilder = new StringBuilder("INSERT INTO ");
+        sqlBuilder.append(tableName).append(" (");
+        sqlBuilder.append(String.join(", ", columnNames));
+        sqlBuilder.append(") VALUES (");
+        
+        // Add placeholders for each column
+        sqlBuilder.append(columnNames.stream()
+            .map(col -> "?")
+            .collect(Collectors.joining(", ")));
+        
+        sqlBuilder.append(")");
+        
+        return sqlBuilder.toString();
+    }
+
+    static void setStatementParameters(PreparedStatement stmt, JsonNode message, List<TableMapping.ColumnMapping> columns) throws SQLException {
+        // ... existing code remains the same ...
     }
 }

@@ -9,6 +9,11 @@
 - 灵活的消息到表的映射配置
 - 支持多种数据类型的转换
 
+## 技术文档
+
+- [Dataflow Pipeline 工作流程](docs/dataflow-workflow.md) - 详细解释了 Dataflow pipeline 的打包、部署和执行过程
+- [消息去重机制](docs/message_deduplication.md) - 详细说明了如何处理重复消息，确保数据一致性
+
 ## 前置条件
 
 1. Java 11 或更高版本

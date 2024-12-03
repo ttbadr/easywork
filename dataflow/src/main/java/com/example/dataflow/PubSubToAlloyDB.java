@@ -37,6 +37,15 @@ public class PubSubToAlloyDB {
         @Default.String("")
         String getTableMappingConfig();
         void setTableMappingConfig(String value);
+
+        @Description("Batch size for database operations")
+        @Default.Integer(1000)
+        int getBatchSize();
+        void setBatchSize(int value);
+
+        @Description("Dead letter topic name. If not set, failed messages will be dropped")
+        String getDeadLetterTopic();
+        void setDeadLetterTopic(String value);
     }
 
     public static void main(String[] args) throws Exception {
@@ -66,12 +75,21 @@ public class PubSubToAlloyDB {
         // Process each subscription
         String[] subscriptions = options.getSubscriptions().split(",");
         for (String subscription : subscriptions) {
+            PubsubIO.Read<String> pubsubRead = PubsubIO.readStrings()
+                .fromSubscription(subscription);
+
+            // Configure dead letter queue
+            if (options.getDeadLetterTopic() != null && !options.getDeadLetterTopic().isEmpty()) {
+                pubsubRead = pubsubRead.withDeadLetterTopic(options.getDeadLetterTopic());
+            }
+
             pipeline
-                .apply("Read From " + subscription,
-                    PubsubIO.readStrings()
-                        .fromSubscription(subscription))
+                .apply("Read From " + subscription, pubsubRead)
                 .apply("Write To AlloyDB " + subscription,
-                    ParDo.of(new AlloyDBWriter(options.getJdbcUrl(), tableMappings)));
+                    ParDo.of(new AlloyDBWriter(
+                        options.getJdbcUrl(), 
+                        tableMappings,
+                        options.getBatchSize())));
         }
 
         pipeline.run();
