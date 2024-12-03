@@ -1,28 +1,66 @@
-- messageType: user_event
-  tableName: user_events
-  columns:
-    - jsonPath: /user_id
-      columnName: user_id
-      columnType: STRING
-    - jsonPath: /event_type
-      columnName: event_type
-      columnType: STRING
-    - jsonPath: /timestamp
-      columnName: event_timestamp
-      columnType: BIGINT
 
-- messageType: order
-  tableName: orders
+# Transaction log table mapping
+- messageType: transaction
+  tableName: DCG_PAYMENT_TRANS_LOG
   columns:
-    - jsonPath: /order_id
-      columnName: order_id
-      columnType: STRING
-    - jsonPath: /customer_id
-      columnName: customer_id
-      columnType: STRING
-    - jsonPath: /total_amount
-      columnName: total_amount
-      columnType: DOUBLE
-    - jsonPath: /created_at
-      columnName: created_at
-      columnType: BIGINT
+    - jsonPath: "$.id"
+      columnName: id
+      columnType: NUMERIC
+
+    - jsonPath: "$.message_type"
+      columnName: message_type
+      columnType: VARCHAR
+
+    - jsonPath: "$.message_content"
+      columnName: message_content
+      columnType: TEXT
+
+    - jsonPath: "$.payment_direction"
+      columnName: payment_direction
+      columnType: VARCHAR
+
+    - jsonPath: "$.message_source"
+      columnName: message_source
+      columnType: VARCHAR
+
+    - jsonPath: "$.message_dest"
+      columnName: message_dest
+      columnType: VARCHAR
+
+    - jsonPath: "$.message_format"
+      columnName: message_format
+      columnType: VARCHAR
+
+    - jsonPath: "$.business_date"
+      columnName: business_date
+      columnType: DATE
+      format: "yyyy-MM-dd"
+
+    - jsonPath: "$.message_status"
+      columnName: message_status
+      columnType: VARCHAR
+
+    - jsonPath: "$.create_time"
+      columnName: create_time
+      columnType: TIMESTAMP WITH TIME ZONE
+      format: "yyyy-MM-dd HH:mm:ss.S"
+
+    - jsonPath: "$.message_response"
+      columnName: message_response
+      columnType: TEXT
+
+    - jsonPath: "$.project_payment_type"
+      columnName: project_payment_type
+      columnType: VARCHAR
+
+    - jsonPath: "$.request_correlation_id"
+      columnName: request_correlation_id
+      columnType: VARCHAR
+
+    - jsonPath: "$.session_correlation_id"
+      columnName: session_correlation_id
+      columnType: VARCHAR
+
+    - jsonPath: "$.country_code"
+      columnName: country_code
+      columnType: VARCHAR

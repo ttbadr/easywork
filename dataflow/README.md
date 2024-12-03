@@ -94,24 +94,65 @@ gcloud config set project your-project-id
 - messageType: user_event
   tableName: user_events
   columns:
-    - jsonPath: /user_id
+    - jsonPath: "$.user_id"
       columnName: user_id
-      columnType: STRING
-    - jsonPath: /event_type
+      columnType: VARCHAR
+    - jsonPath: "$.event_type"
       columnName: event_type
-      columnType: STRING
-    - jsonPath: /timestamp
-      columnName: event_timestamp
-      columnType: BIGINT
+      columnType: VARCHAR
+    - jsonPath: "$.created_at"
+      columnName: created_at
+      columnType: TIMESTAMP
+      format: "yyyy-MM-dd HH:mm:ss.S"
+    - jsonPath: "$.event_date"
+      columnName: event_date
+      columnType: DATE
+      format: "yyyy-MM-dd"
 ```
 
 配置说明：
 - `messageType`: Pub/Sub 消息中的类型字段值
 - `tableName`: 目标数据库表名
 - `columns`: 列映射配置
-  - `jsonPath`: JSON 消息中的字段路径
+  - `jsonPath`: JSON 消息中的字段路径（使用 JsonPath 语法）
   - `columnName`: 数据库表中的列名
-  - `columnType`: 数据类型（支持 STRING、INTEGER、BIGINT、DOUBLE、BOOLEAN）
+  - `columnType`: 数据类型（支持 AlloyDB/PostgreSQL 的标准类型）
+  - `format`: 日期时间类型的格式（可选，仅适用于 DATE 和 TIMESTAMP 类型）
+
+支持的数据类型：
+1. 字符类型：
+   - `CHAR`/`CHARACTER`
+   - `VARCHAR`/`CHARACTER VARYING`
+   - `TEXT`
+
+2. 数值类型：
+   - `SMALLINT`/`INT2`：2字节整数
+   - `INTEGER`/`INT`/`INT4`：4字节整数
+   - `BIGINT`/`INT8`：8字节整数
+   - `NUMERIC`/`DECIMAL`：精确数值
+   - `REAL`/`FLOAT4`：4字节浮点数
+   - `DOUBLE PRECISION`/`FLOAT8`：8字节浮点数
+
+3. 布尔类型：
+   - `BOOLEAN`/`BOOL`
+
+4. 日期时间类型：
+   - `DATE`：日期
+   - `TIMESTAMP`/`TIMESTAMP WITHOUT TIME ZONE`：时间戳
+   - `TIMESTAMP WITH TIME ZONE`/`TIMESTAMPTZ`：带时区的时间戳
+
+日期时间格式说明：
+- 年：`yyyy`（四位年份）或`yy`（两位年份）
+- 月：`MM`（两位月份）
+- 日：`dd`（两位日期）
+- 时：`HH`（24小时制）或`hh`（12小时制）
+- 分：`mm`
+- 秒：`ss`
+- 毫秒：`S`或`SSS`
+
+默认格式：
+- DATE类型：`yyyy-MM-dd`
+- TIMESTAMP类型：`yyyy-MM-dd HH:mm:ss.S`
 
 ### 数据库表创建
 
@@ -119,16 +160,17 @@ gcloud config set project your-project-id
 
 ```sql
 CREATE TABLE user_events (
-    user_id STRING,
-    event_type STRING,
-    event_timestamp BIGINT
+    user_id VARCHAR(255),
+    event_type VARCHAR(50),
+    created_at TIMESTAMP,
+    event_date DATE
 );
 
 CREATE TABLE orders (
-    order_id STRING,
-    customer_id STRING,
-    total_amount DOUBLE,
-    created_at BIGINT
+    order_id VARCHAR(255),
+    customer_id VARCHAR(255),
+    total_amount NUMERIC(10,2),
+    created_at TIMESTAMP WITH TIME ZONE
 );
 ```
 

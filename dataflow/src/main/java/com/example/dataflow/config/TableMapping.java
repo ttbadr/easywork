@@ -39,6 +39,7 @@ public class TableMapping implements Serializable {
         private String jsonPath;
         private String columnName;
         private String columnType;
+        private String format;
 
         public String getJsonPath() {
             return jsonPath;
@@ -62,6 +63,14 @@ public class TableMapping implements Serializable {
 
         public void setColumnType(String columnType) {
             this.columnType = columnType;
+        }
+
+        public String getFormat() {
+            return format;
+        }
+
+        public void setFormat(String format) {
+            this.format = format;
         }
     }
 }

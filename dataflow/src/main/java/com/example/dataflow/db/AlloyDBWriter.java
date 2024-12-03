@@ -10,6 +10,11 @@ import org.slf4j.LoggerFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Date;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -20,6 +25,8 @@ import java.util.stream.Collectors;
 public class AlloyDBWriter extends DoFn<String, Void> {
     private static final Logger LOG = LoggerFactory.getLogger(AlloyDBWriter.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
+    private static final String DEFAULT_TIMESTAMP_FORMAT = "yyyy-MM-dd HH:mm:ss.S";
 
     private final String jdbcUrl;
     private final List<TableMapping> tableMappings;
@@ -68,7 +75,7 @@ public class AlloyDBWriter extends DoFn<String, Void> {
             for (int i = 0; i < mapping.getColumns().size(); i++) {
                 TableMapping.ColumnMapping column = mapping.getColumns().get(i);
                 JsonNode value = jsonNode.at(column.getJsonPath());
-                setParameterValue(stmt, i + 1, value, column.getColumnType());
+                setParameterValue(stmt, i + 1, value, column);
             }
             stmt.executeUpdate();
         }
@@ -80,30 +87,114 @@ public class AlloyDBWriter extends DoFn<String, Void> {
         return String.format("INSERT INTO %s (%s) VALUES (%s)", tableName, columns, placeholders);
     }
 
-    private void setParameterValue(PreparedStatement stmt, int index, JsonNode value, String columnType) throws SQLException {
+    private void setParameterValue(PreparedStatement stmt, int index, JsonNode value, TableMapping.ColumnMapping column) throws SQLException {
         if (value.isNull()) {
             stmt.setNull(index, java.sql.Types.NULL);
             return;
         }
 
-        switch (columnType.toUpperCase()) {
-            case "STRING":
-                stmt.setString(index, value.asText());
-                break;
-            case "INTEGER":
-                stmt.setInt(index, value.asInt());
-                break;
-            case "BIGINT":
-                stmt.setLong(index, value.asLong());
-                break;
-            case "DOUBLE":
-                stmt.setDouble(index, value.asDouble());
-                break;
-            case "BOOLEAN":
-                stmt.setBoolean(index, value.asBoolean());
-                break;
-            default:
-                stmt.setString(index, value.asText());
+        String columnType = column.getColumnType().toUpperCase();
+        try {
+            switch (columnType) {
+                // Character types
+                case "CHAR":
+                case "CHARACTER":
+                case "VARCHAR":
+                case "CHARACTER VARYING":
+                case "TEXT":
+                    stmt.setString(index, value.asText());
+                    break;
+
+                // Integer types
+                case "SMALLINT":
+                case "INT2":
+                    stmt.setShort(index, value.shortValue());
+                    break;
+                case "INT":
+                case "INTEGER":
+                case "INT4":
+                    stmt.setInt(index, value.asInt());
+                    break;
+                case "BIGINT":
+                case "INT8":
+                    stmt.setLong(index, value.asLong());
+                    break;
+
+                // Floating-point types
+                case "REAL":
+                case "FLOAT4":
+                    stmt.setFloat(index, value.floatValue());
+                    break;
+                case "DOUBLE PRECISION":
+                case "FLOAT8":
+                    stmt.setDouble(index, value.asDouble());
+                    break;
+                case "NUMERIC":
+                case "DECIMAL":
+                    stmt.setBigDecimal(index, value.decimalValue());
+                    break;
+
+                // Boolean types
+                case "BOOLEAN":
+                case "BOOL":
+                    stmt.setBoolean(index, value.asBoolean());
+                    break;
+
+                // Date/Time types
+                case "DATE":
+                    try {
+                        String format = column.getFormat();
+                        if (format == null || format.isEmpty()) {
+                            format = DEFAULT_DATE_FORMAT;
+                        }
+                        SimpleDateFormat dateFormat = new SimpleDateFormat(format);
+                        java.util.Date parsedDate = dateFormat.parse(value.asText());
+                        stmt.setDate(index, new java.sql.Date(parsedDate.getTime()));
+                    } catch (ParseException e) {
+                        LOG.error("Error parsing DATE value: " + value.asText() + " with format: " + column.getFormat(), e);
+                        throw new SQLException("Invalid DATE format for column " + column.getColumnName(), e);
+                    }
+                    break;
+
+                case "TIMESTAMP":
+                case "TIMESTAMP WITHOUT TIME ZONE":
+                    try {
+                        String format = column.getFormat();
+                        if (format == null || format.isEmpty()) {
+                            format = DEFAULT_TIMESTAMP_FORMAT;
+                        }
+                        SimpleDateFormat timestampFormat = new SimpleDateFormat(format);
+                        java.util.Date parsedDate = timestampFormat.parse(value.asText());
+                        stmt.setTimestamp(index, new java.sql.Timestamp(parsedDate.getTime()));
+                    } catch (ParseException e) {
+                        LOG.error("Error parsing TIMESTAMP value: " + value.asText() + " with format: " + column.getFormat(), e);
+                        throw new SQLException("Invalid TIMESTAMP format for column " + column.getColumnName(), e);
+                    }
+                    break;
+
+                case "TIMESTAMP WITH TIME ZONE":
+                case "TIMESTAMPTZ":
+                    try {
+                        String format = column.getFormat();
+                        if (format == null || format.isEmpty()) {
+                            format = DEFAULT_TIMESTAMP_FORMAT;
+                        }
+                        SimpleDateFormat timestampFormat = new SimpleDateFormat(format);
+                        java.util.Date parsedDate = timestampFormat.parse(value.asText());
+                        stmt.setTimestamp(index, new java.sql.Timestamp(parsedDate.getTime()));
+                    } catch (ParseException e) {
+                        LOG.error("Error parsing TIMESTAMPTZ value: " + value.asText() + " with format: " + column.getFormat(), e);
+                        throw new SQLException("Invalid TIMESTAMPTZ format for column " + column.getColumnName(), e);
+                    }
+                    break;
+
+                default:
+                    LOG.warn("Unrecognized AlloyDB column type: {}. Falling back to string representation.", columnType);
+                    stmt.setString(index, value.asText());
+            }
+        } catch (Exception e) {
+            LOG.error("Error setting value for column {}: type={}, value={}", column.getColumnName(), columnType, value.asText(), e);
+            throw new SQLException("Error setting value for column " + column.getColumnName(), e);
         }
     }
 
