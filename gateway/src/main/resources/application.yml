@@ -1,0 +1,37 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: dcg-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+
+dcg:
+  vas:
+    schemes:
+      mala:
+        base_url: "https://api.mala.com"
+        content_type: "json"
+        services:
+          list:
+            endpoint: "https://api.mala.com/list"
+          delete:
+            endpoint: "https://api.mala.com/delete"
+        auth:
+          type: "bearer_token"
+          token: ""
+          token_refresh:
+            type: "reacquire"
+            url: "https://api.mala.com/api/token"
+            method: "POST"
+            body:
+              username: "${USERNAME}"
+              password: "${PASSWORD}"
+            token_path: "$.token"
+            refresh_before_expiry: "300"
+            max_retry_times: 3
+            retry_interval: "10" 

@@ -12,6 +12,7 @@
     <modules>
         <module>pubsub</module>
         <module>dataflow</module>
+        <module>gateway</module>
     </modules>
 
     <properties>
