@@ -184,3 +184,46 @@ Authorization: Bearer system-token
 - Unified error code system
 - Detailed error log recording
 - Request timeout and retry mechanism
+
+## Recent Updates
+
+### 1. Configuration Auto-refresh
+- Added support for configuration auto-refresh using Spring Cloud Config
+- Added @RefreshScope to DcgConfig for dynamic configuration updates
+- Added actuator endpoint for manual refresh trigger
+- Configuration changes will not affect runtime states (like token cache)
+
+### 2. HTTP Client Retry Mechanism
+- Added centralized HTTP client retry configuration
+```yaml
+dcg:
+  http:
+    retry:
+      max-attempts: 3
+      initial-backoff: 1000  # Initial retry interval (ms)
+      max-backoff: 5000     # Maximum retry interval (ms)
+      multiplier: 2         # Retry interval multiplier
+      retry-on-status:      # HTTP status codes that trigger retry
+        - 502
+        - 503
+        - 504
+```
+- Implemented retry mechanism for both WebClient and RestTemplate
+- Added support for configurable retry status codes
+- Added exponential backoff with jitter
+
+### 3. Token Management Improvements
+- Centralized token management using TokenManager
+- Prevent token loss during configuration refresh
+- Added concurrent refresh control using locks
+- Each scheme maintains its own TokenCache instance
+
+### 4. Content Handling Simplification
+- Removed content conversion between JSON and XML
+- Request handling:
+  - Forward request.data directly as request body to downstream system
+  - Content-Type is set based on scheme configuration
+- Response handling:
+  - For JSON responses: Parse to Object and put in response.data
+  - For XML responses: Keep as String and put in response.data
+  - Always return JSON response to client

@@ -1,47 +1,37 @@
 package com.dcg.gateway.filter;
 
 import com.dcg.gateway.exception.GatewayException;
-import com.dcg.gateway.manager.AuthManager;
 import com.dcg.gateway.manager.ConfigManager;
 import com.dcg.gateway.model.GatewayRequest;
 import com.dcg.gateway.model.GatewayResponse;
 import com.dcg.gateway.model.config.SchemeConfig;
-import com.dcg.gateway.util.ContentConverter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Component
 public class DcgGatewayFilter extends AbstractGatewayFilterFactory<DcgGatewayFilter.Config> {
     private final ObjectMapper objectMapper;
     private final ConfigManager configManager;
-    private final AuthManager authManager;
-    private final ContentConverter contentConverter;
     private final WebClient webClient;
 
     public DcgGatewayFilter(ObjectMapper objectMapper, ConfigManager configManager,
-                           AuthManager authManager, ContentConverter contentConverter,
-                           WebClient.Builder webClientBuilder) {
+                        WebClient.Builder webClientBuilder) {
         super(Config.class);
         this.objectMapper = objectMapper;
         this.configManager = configManager;
-        this.authManager = authManager;
-        this.contentConverter = contentConverter;
         this.webClient = webClientBuilder.build();
     }
 
@@ -65,61 +55,61 @@ public class DcgGatewayFilter extends AbstractGatewayFilterFactory<DcgGatewayFil
                             return Mono.error(new GatewayException("400", "Invalid request format"));
                         }
                     })
-                    .onErrorResume(this::handleError);
+                    .onErrorResume(error -> handleError(exchange, error));
         };
     }
 
     private Mono<Void> handleRequest(ServerWebExchange exchange, GatewayRequest<?> request) {
         try {
-            // 获取配置
             SchemeConfig schemeConfig = configManager.getSchemeConfig(request.getScheme());
+            schemeConfig.getAuth().setWebClient(webClient);
+            
             String endpoint = configManager.getEndpoint(request.getScheme(), request.getService());
-            String token = authManager.getToken(request.getScheme());
 
-            // 转换请求内容
-            String requestBody = contentConverter.convertToTargetFormat(
-                    request.getData(),
-                    "json",
-                    schemeConfig.getContentType()
-            );
-
+            // 直接使用 request.getData() 作为请求体
+            Object requestBody = request.getData();
             log.info("Forwarding request to {}, body: {}", endpoint, requestBody);
 
             // 调用下游服务
-            return webClient.method(HttpMethod.POST)
+            WebClient.RequestHeadersSpec<?> requestSpec = webClient.method(HttpMethod.POST)
                     .uri(endpoint)
                     .contentType(getMediaType(schemeConfig.getContentType()))
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .bodyValue(requestBody)
-                    .exchangeToMono(clientResponse -> {
-                        // 处理响应
-                        return clientResponse.bodyToMono(String.class)
-                                .flatMap(responseBody -> {
-                                    try {
-                                        // 转换响应内容
-                                        Object responseData = contentConverter.convertToTargetFormat(
-                                                responseBody,
-                                                schemeConfig.getContentType(),
-                                                "json"
-                                        );
+                    .bodyValue(requestBody);
 
-                                        GatewayResponse<?> response = GatewayResponse.success(responseData);
-                                        byte[] bytes = objectMapper.writeValueAsBytes(response);
-                                        DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(bytes);
-                                        
-                                        exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                                        return exchange.getResponse().writeWith(Mono.just(buffer));
-                                    } catch (Exception e) {
-                                        return Mono.error(new GatewayException("500", "Failed to process response"));
-                                    }
-                                });
-                    });
+            // 应用认证
+            requestSpec = schemeConfig.getAuth().auth(requestSpec, request.getScheme());
+
+            return requestSpec.exchangeToMono(clientResponse -> {
+                // 处理响应
+                return clientResponse.bodyToMono(String.class)
+                        .flatMap(responseBody -> {
+                            try {
+                                Object responseData;
+                                if ("json".equalsIgnoreCase(schemeConfig.getContentType())) {
+                                    // JSON 响应，解析为对象
+                                    responseData = objectMapper.readValue(responseBody, Object.class);
+                                } else {
+                                    // 其他格式（如 XML），直接作为字符串
+                                    responseData = responseBody;
+                                }
+
+                                GatewayResponse<?> response = GatewayResponse.success(responseData);
+                                byte[] bytes = objectMapper.writeValueAsBytes(response);
+                                DataBuffer buffer = exchange.getResponse().bufferFactory().wrap(bytes);
+                                
+                                exchange.getResponse().getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                                return exchange.getResponse().writeWith(Mono.just(buffer));
+                            } catch (Exception e) {
+                                return Mono.error(new GatewayException("500", "Failed to process response"));
+                            }
+                        });
+            });
         } catch (Exception e) {
             return Mono.error(e);
         }
     }
 
-    private Mono<Void> handleError(Throwable error) {
+    private Mono<Void> handleError(ServerWebExchange exchange, Throwable error) {
         log.error("Error processing request", error);
         GatewayResponse<?> response;
         if (error instanceof GatewayException) {

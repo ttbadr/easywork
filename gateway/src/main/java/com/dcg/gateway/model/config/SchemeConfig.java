@@ -1,5 +1,6 @@
 package com.dcg.gateway.model.config;
 
+import com.dcg.gateway.model.config.auth.AuthConfig;
 import lombok.Data;
 import java.util.Map;
 

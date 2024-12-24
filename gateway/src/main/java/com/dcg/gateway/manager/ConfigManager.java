@@ -25,8 +25,8 @@ public class ConfigManager {
 
     public SchemeConfig getSchemeConfig(String scheme) {
         return Optional.ofNullable(dcgConfig.getVas())
-                .map(vas -> vas.get("schemes"))
-                .map(schemes -> schemes.getSchemes().get(scheme))
+                .map(vas -> vas.getSchemes())
+                .map(schemes -> schemes.get(scheme))
                 .orElseThrow(() -> new GatewayException("404", "Scheme not found: " + scheme));
     }
 
