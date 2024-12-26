@@ -1,5 +1,6 @@
 package com.dcg.gateway.filter;
 
+import com.dcg.gateway.auth.AuthHandlerManager;
 import com.dcg.gateway.exception.GatewayException;
 import com.dcg.gateway.manager.ConfigManager;
 import com.dcg.gateway.model.GatewayRequest;
@@ -26,26 +27,28 @@ public class DcgGatewayFilter extends AbstractGatewayFilterFactory<DcgGatewayFil
     private final ObjectMapper objectMapper;
     private final ConfigManager configManager;
     private final WebClient webClient;
+    private final AuthHandlerManager authHandlerManager;
 
-    public DcgGatewayFilter(ObjectMapper objectMapper, ConfigManager configManager,
-                        WebClient.Builder webClientBuilder) {
+    public DcgGatewayFilter(ObjectMapper objectMapper, 
+                           ConfigManager configManager,
+                           WebClient.Builder webClientBuilder,
+                           AuthHandlerManager authHandlerManager) {
         super(Config.class);
         this.objectMapper = objectMapper;
         this.configManager = configManager;
         this.webClient = webClientBuilder.build();
+        this.authHandlerManager = authHandlerManager;
     }
 
     @Override
     public GatewayFilter apply(Config config) {
         return (exchange, chain) -> {
-            // 读取请求体
             return DataBufferUtils.join(exchange.getRequest().getBody())
                     .flatMap(dataBuffer -> {
                         byte[] bytes = new byte[dataBuffer.readableByteCount()];
                         dataBuffer.read(bytes);
                         DataBufferUtils.release(dataBuffer);
                         
-                        // 解析请求
                         try {
                             String body = new String(bytes, StandardCharsets.UTF_8);
                             GatewayRequest<?> request = objectMapper.readValue(body, GatewayRequest.class);
@@ -62,34 +65,29 @@ public class DcgGatewayFilter extends AbstractGatewayFilterFactory<DcgGatewayFil
     private Mono<Void> handleRequest(ServerWebExchange exchange, GatewayRequest<?> request) {
         try {
             SchemeConfig schemeConfig = configManager.getSchemeConfig(request.getScheme());
-            schemeConfig.getAuth().setWebClient(webClient);
-            
             String endpoint = configManager.getEndpoint(request.getScheme(), request.getService());
 
-            // 直接使用 request.getData() 作为请求体
             Object requestBody = request.getData();
             log.info("Forwarding request to {}, body: {}", endpoint, requestBody);
 
-            // 调用下游服务
             WebClient.RequestHeadersSpec<?> requestSpec = webClient.method(HttpMethod.POST)
                     .uri(endpoint)
                     .contentType(getMediaType(schemeConfig.getContentType()))
                     .bodyValue(requestBody);
 
-            // 应用认证
-            requestSpec = schemeConfig.getAuth().auth(requestSpec, request.getScheme());
+            // 使用AuthHandlerManager处理认证
+            if (schemeConfig.getAuthConfig() != null) {
+                requestSpec = authHandlerManager.auth(requestSpec, schemeConfig.getAuthConfig(), request.getScheme());
+            }
 
             return requestSpec.exchangeToMono(clientResponse -> {
-                // 处理响应
                 return clientResponse.bodyToMono(String.class)
                         .flatMap(responseBody -> {
                             try {
                                 Object responseData;
                                 if ("json".equalsIgnoreCase(schemeConfig.getContentType())) {
-                                    // JSON 响应，解析为对象
                                     responseData = objectMapper.readValue(responseBody, Object.class);
                                 } else {
-                                    // 其他格式（如 XML），直接作为字符串
                                     responseData = responseBody;
                                 }
 

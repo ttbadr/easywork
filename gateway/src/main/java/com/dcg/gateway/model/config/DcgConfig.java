@@ -1,23 +1,31 @@
 package com.dcg.gateway.model.config;
 
-import lombok.Data;
+import lombok.Getter;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.ConstructorBinding;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 
 import java.util.Map;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.cloud.context.config.annotation.RefreshScope;
-import org.springframework.context.annotation.Configuration;
-
-@Data
-@Configuration
+@Getter
 @ConfigurationProperties(prefix = "dcg")
 @RefreshScope
+@ConstructorBinding
 public class DcgConfig {
-    private Vas vas;
-    private HttpConfig http;
+    private final Vas vas;
+    private final HttpConfig http;
 
-    @Data
+    public DcgConfig(Vas vas, HttpConfig http) {
+        this.vas = vas;
+        this.http = http;
+    }
+
+    @Getter
     public static class Vas {
-        private Map<String, SchemeConfig> schemes;
+        private final Map<String, SchemeConfig> schemes;
+
+        public Vas(Map<String, SchemeConfig> schemes) {
+            this.schemes = schemes;
+        }
     }
 } 

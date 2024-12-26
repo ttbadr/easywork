@@ -20,7 +20,7 @@ public class ConfigManager {
 
     @PostConstruct
     public void init() {
-        log.info("Initializing ConfigManager with config: {}", dcgConfig);
+        log.info("Initializing ConfigManager with config: {}", dcgConfig.hashCode());
     }
 
     public SchemeConfig getSchemeConfig(String scheme) {

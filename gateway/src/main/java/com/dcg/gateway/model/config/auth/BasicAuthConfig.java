@@ -12,15 +12,4 @@ import java.nio.charset.StandardCharsets;
 public class BasicAuthConfig extends AuthConfig {
     private String username;
     private String password;
-
-    @Override
-    public WebClient.RequestHeadersSpec<?> auth(WebClient.RequestHeadersSpec<?> request, String scheme) {
-        String credentials = Base64.getEncoder()
-                .encodeToString((username + ":" + password).getBytes());
-        request.header(HttpHeaders.AUTHORIZATION, "Basic " + credentials);
-        if (getHeaders() != null) {
-            getHeaders().forEach(request::header);
-        }
-        return request;
-    }
 } 

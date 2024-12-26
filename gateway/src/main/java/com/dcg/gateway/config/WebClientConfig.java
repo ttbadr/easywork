@@ -20,7 +20,7 @@ public class WebClientConfig {
     private final DcgConfig dcgConfig;
 
     @Bean
-    public WebClient.Builder webClientBuilder() {
+    public WebClient webClient() {
         return WebClient.builder()
                 .filter(ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
                     if (shouldRetry(clientResponse.statusCode().value())) {
@@ -35,7 +35,7 @@ public class WebClientConfig {
                         .maxBackoff(Duration.ofMillis(dcgConfig.getHttp().getRetry().getMaxBackoff()))
                         .filter(throwable -> throwable instanceof RetryableException)
                     )
-                ));
+                )).build();
     }
 
     private boolean shouldRetry(int statusCode) {

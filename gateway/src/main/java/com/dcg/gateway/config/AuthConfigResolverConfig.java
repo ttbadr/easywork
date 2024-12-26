@@ -2,6 +2,7 @@ package com.dcg.gateway.config;
 
 import com.dcg.gateway.spi.AuthConfigProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,9 @@ public class AuthConfigResolverConfig {
     @Bean
     public ObjectMapper objectMapper() {
         ObjectMapper mapper = new ObjectMapper();
+        // 设置全局命名策略为下划线
+        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        
         // 通过 SPI 注册所有认证类型
         for (AuthConfigProvider provider : providers) {
             mapper.registerSubtypes(
