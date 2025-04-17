@@ -10,9 +10,7 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>pubsub</module>
-        <module>dataflow</module>
-        <module>gateway</module>
+        <module>mapping</module>
     </modules>
 
     <properties>
