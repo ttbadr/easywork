@@ -15,7 +15,7 @@
 3. **格式解析器(Format Parser)**：负责将各种格式的输入数据解析成统一的中间数据模型
 4. **中间数据模型(Intermediate Data Model)**：所有格式转换的枢纽，采用简单的键值对结构表示数据
 5. **映射引擎(Mapping Engine)**：根据配置的映射规则，将源格式的中间模型转换为目标格式的中间模型
-6. **转换规则配置(Mapping Configuration)**：定义字段映射关系、转换规则和验证规则
+6. **转换规则配置(Mapping Configuration)**：定义字段映射关系、转换规则、验证规则、预处理器和后处理器等
 7. **格式生成器(Format Generator)**：将中间数据模型转换为目标格式的输出
 8. **后处理器(Post-Processor)**：在格式生成后对输出数据进行后处理，支持自定义处理逻辑
 
@@ -23,9 +23,9 @@
 
 ```
 输入数据 → 格式验证器 → 预处理器 → 格式解析器 → 中间数据模型 → 映射引擎 → 中间数据模型 → 格式生成器 → 后处理器 → 格式验证器 → 输出数据
-                                                          ↑
-                                                          |
-                                                      转换规则配置
+                                                              ↑
+                                                              |
+                                                         转换规则配置
 ```
 
 ## 3. 核心组件详细设计
@@ -36,13 +36,14 @@
 
 - **XMLValidator**: 使用XSD Schema验证XML格式
 - **JSONValidator**: 使用JSON Schema验证JSON格式
-- **FixedLengthValidator**: 验证字段长度和数据类型
-- **ISO8583Validator**: 验证ISO8583报文格式和字段规范
+- **FixedLengthValidator**: 根据配置的字段长度、类型和位置规则进行验证
+- **ISO8583Validator**: 根据ISO8583标准定义的字段规范和格式规则进行验证
 - **ISO20022Validator**: 验证ISO20022 XML Schema
 
 ```java
 public interface FormatValidator {
-    ValidationResult validate(InputStream input, ValidatorConfig config);
+    // 使用 MapperConfig 统一管理配置
+    ValidationResult validate(String input, MapperConfig config);
 }
 
 public class ValidationResult {
@@ -88,11 +89,50 @@ public class ValidationResult {
 
 ### 3.4 转换规则配置(Mapping Configuration)
 
-使用YAML作为主要配置格式：
+使用YAML作为主要配置格式，并由统一的`MapperConfig`对象进行绑定：
 
 ```yaml
+# 统一的 MapperConfig 配置
+preProcessor: com.example.MyPreProcessor # 可选的预处理器类名
+postProcessor: com.example.MyPostProcessor # 可选的后处理器类名
+
 source:
   format: json
+  validator:
+    type: jsonSchema  # 明确指定验证器类型为 schema
+    config:
+      # schema 验证器需要的参数
+      schemaPath: "customer-schema.json"
+
+target:
+  format: xml
+  validator:
+    type: xsd  # 明确指定验证器类型为 xsd
+    config:
+      # schema 验证器需要的参数
+      schemaPath: "transaction-schema.xsd"
+
+# --- 其他格式验证器配置示例 --- 
+# 例: 定长格式 (如果 target 是 fixedLength):
+# target:
+#   format: fixedLength
+#   validator:
+#     type: rules # 明确指定验证器类型为 rules
+#     config:
+#       # rules 验证器需要的参数
+#       rules:
+#         - { field: 'field1', length: 10, type: 'AN' }
+#         - { field: 'field2', length: 5, type: 'N' }
+
+# 例: ISO8583 (如果 target 是 iso8583):
+# target:
+#   format: iso8583
+#   validator:
+#     type: spec # 明确指定验证器类型为 spec
+#     config:
+#       # spec 验证器需要的参数
+#       specPath: "iso8583-spec.xml" # 指向 j8583 配置文件
+
 rules:
   - source: $.customer.name        # JSONPath表达式
     target: /Document/Customer/Name  # XPath表达式
@@ -101,6 +141,14 @@ rules:
     transform:
       type: multiply
       factor: 100
+  - source: $.transactionDate
+    target: /Document/Transaction/Date
+    transform:
+      type: dateFormat
+      sourceFormat: "yyyy-MM-dd"
+      targetFormat: "dd/MM/yyyy"
+  - target: /Document/Transaction/Currency
+    value: "CNY"    # 默认值设置
 ```
 
 ### 3.5 格式生成器(Format Generator)
@@ -123,11 +171,13 @@ rules:
 
 ```java
 public interface PreProcessor {
-    InputStream process(InputStream input, ProcessorConfig config);
+    // 使用 MapperConfig 统一管理配置
+    String process(String input, MapperConfig config);
 }
 
 public interface PostProcessor {
-    OutputStream process(OutputStream output, ProcessorConfig config);
+    // 使用 MapperConfig 统一管理配置
+    String process(String output, MapperConfig config);
 }
 ```
 
@@ -137,11 +187,13 @@ public interface PostProcessor {
 
 ```java
 public interface FormatParser {
-    Map<String, Object> parse(InputStream input, ParserConfig config);
+    // 使用 MapperConfig 统一管理配置
+    Map<String, Object> parse(String input, MapperConfig config);
 }
 
 public interface FormatGenerator {
-    void generate(Map<String, Object> data, OutputStream output, GeneratorConfig config);
+    // 使用 MapperConfig 统一管理配置
+    String generate(Map<String, Object> data, MapperConfig config);
 }
 ```
 
@@ -183,14 +235,17 @@ public interface ValueTransformer {
 // 创建映射引擎
 MappingEngine engine = new MappingEngine();
 
-// 加载配置
-MappingConfig config = MappingConfigLoader.load("json-to-xml-mapping.xml");
+// 加载统一配置
+MapperConfig config = MapperConfigLoader.load("mapping-config.yaml"); // 假设加载方法和文件名已更新
+
+// 读取输入字符串 (示例)
+String inputJson = readFileToString("input.json"); // 假设有此辅助方法
 
 // 执行转换
-InputStream input = new FileInputStream("input.json");
-OutputStream output = new FileOutputStream("output.xml");
+String outputXml = engine.transform(inputJson, config);
 
-engine.transform(input, output, config);
+// 写入输出字符串 (示例)
+writeStringToFile("output.xml", outputXml); // 假设有此辅助方法
 ```
 
 ## 7. 后续发展
