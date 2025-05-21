@@ -15,6 +15,7 @@ public class MapperConfig {
     private FormatConfig source;
     private FormatConfig target;
     private List<MappingRule> rules;
+    private List<Namespaces> namespaces;
 
     // Getters and Setters
 
@@ -175,5 +176,49 @@ public class MapperConfig {
         public void setParameters(Map<String, Object> parameters) {
             this.parameters = parameters;
         }
+    }
+
+    public static class Namespaces {
+        // namespace prefix, default namespace if prefix is empty
+        private String prefix;
+        // namespace uri
+        private String uri;
+        // apply namespace prefix to this xpath and all child elements
+        private String applyPrefixTo;
+        // define namespace in the node find by this xpath
+        private String defineNsIn;
+
+        public String getPrefix() {
+            return prefix;
+        }
+        public void setPrefix(String prefix) {
+            this.prefix = prefix;
+        }
+        public String getUri() {
+            return uri;
+        }
+        public void setUri(String uri) {
+            this.uri = uri;
+        }
+        public String getApplyPrefixTo() {
+            return applyPrefixTo;
+        }
+        public void setApplyPrefixTo(String applyTo) {
+            this.applyPrefixTo = applyTo;
+        }
+        public String getDefineNsIn() {
+            return defineNsIn;
+        }
+        public void setDefineNsIn(String definedIn) {
+            this.defineNsIn = definedIn;
+        }
+    }
+
+    public List<Namespaces> getNamespaces() {
+        return namespaces;
+    }
+
+    public void setNamespaces(List<Namespaces> namespaces) {
+        this.namespaces = namespaces;
     }
 }

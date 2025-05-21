@@ -8,7 +8,12 @@ import com.easywork.mapping.processor.PreProcessor;
 import com.easywork.mapping.validator.FormatValidator;
 import com.easywork.mapping.validator.ValidationResult;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Map;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 // TODO: Import necessary implementation classes or use a factory/registry pattern
 
@@ -16,6 +21,23 @@ import java.util.Map;
  * The main engine responsible for orchestrating the data mapping process.
  */
 public class MappingEngine {
+
+    private static volatile MappingEngine instance;
+    
+    private MappingEngine() {
+        // 私有构造函数
+    }
+    
+    public static MappingEngine getInstance() {
+        if (instance == null) {
+            synchronized (MappingEngine.class) {
+                if (instance == null) {
+                    instance = new MappingEngine();
+                }
+            }
+        }
+        return instance;
+    }
 
     // TODO: Inject or instantiate necessary components (Validators, Parsers, Generators, Processors)
     // private FormatValidator sourceValidator;
@@ -88,6 +110,11 @@ public class MappingEngine {
         }
 
         return outputData;
+    }
+
+    public MapperConfig loadConfig(String configPath) throws IOException {
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        return mapper.readValue(new File(configPath), MapperConfig.class);
     }
 
     // --- Placeholder methods for component retrieval --- 
